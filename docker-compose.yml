@@ -3,5 +3,8 @@ services:
     build: .
     volumes:
       - .:/app
+    environment:
+      # Add the src folder to Python path to allow module imports
+      - PYTHONPATH=/app/src
     tty: true
     stdin_open: true
