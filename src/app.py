@@ -3,15 +3,14 @@ from processor import process_data
 from fetcher import fetch_fpl_data, fetch_fixtures
 import pandas as pd
 
+# Set page configuration
 st.set_page_config(page_title="FPL Smart Scout", layout="wide")
 
 # Sidebar Legend & Filters
 st.sidebar.header("🎨 Legend & Settings")
 st.sidebar.info("""
 **Scout Score:** 🟢 High Score = Strong Pick  
-**Next 3 FDR (Difficulty):** 🟢 Green (2.0) = Easy  
-🟡 Yellow (3.0) = Average  
-🔴 Red (4.0+) = Hard
+**Next 3 FDR (Difficulty):** 🟢 Green (2.0) = Easy | 🟡 Yellow (3.0) = Average | 🔴 Red (4.0+) = Hard
 """)
 
 pos_filter = st.sidebar.selectbox("Position", ["All", "GKP", "DEF", "MID", "FWD"])
@@ -27,9 +26,11 @@ with st.spinner('Loading data from FPL...'):
 st.title("🏆 FPL Smart Scout Dashboard")
 with st.expander("View Premier League Table"):
     teams_df = pd.DataFrame(raw_data['teams'])
-    # Sorting by position (rank) in the league
-    league_table = teams_df[['name', 'position', 'played', 'win', 'draw', 'loss', 'goals_for', 'goals_against', 'points']].sort_values('position')
-    league_table.columns = ['Team', 'Rank', 'P', 'W', 'D', 'L', 'GF', 'GA', 'Pts']
+    
+    # Correcting field names: FPL API uses 'strength' and specific ranking fields
+    # We will use the most relevant fields available in the bootstrap-static endpoint
+    league_table = teams_df[['name', 'position', 'played', 'win', 'draw', 'loss', 'points']].sort_values('position')
+    league_table.columns = ['Team', 'Rank', 'P', 'W', 'D', 'L', 'Pts']
     st.dataframe(league_table, width="stretch", hide_index=True)
 
 # --- 2. RECOMMENDATIONS TABLE ---
@@ -40,12 +41,16 @@ if pos_filter != "All":
     df = df[df['position'] == pos_filter]
 filtered_df = df[df['now_cost'] <= max_price]
 
-# Prepare Display (Added Team column as requested)
+# Get Ownership from raw_data
+ownership_map = pd.DataFrame(raw_data['elements']).set_index('web_name')['selected_by_percent'].to_dict()
+filtered_df['Own %'] = filtered_df['web_name'].map(ownership_map)
+
+# Prepare Display
 clean_display = filtered_df[[
-    'web_name', 'team_name', 'now_cost', 'form', 'next_3_fdr', 'smart_score'
+    'web_name', 'team_name', 'now_cost', 'form', 'next_3_fdr', 'Own %', 'smart_score'
 ]].copy()
 
-clean_display.columns = ['Player', 'Team', 'Price', 'Form', 'Next 3 FDR', 'Scout Score']
+clean_display.columns = ['Player', 'Team', 'Price', 'Form', 'Next 3 FDR', 'Own %', 'Scout Score']
 
 st.dataframe(
     clean_display.style.background_gradient(subset=['Scout Score'], cmap='Greens')
@@ -63,11 +68,11 @@ teams_map = {team['id']: team['name'] for team in raw_data['teams']}
 fix_df = pd.DataFrame(fixtures)
 
 # Dynamic GW Selection
-all_upcoming_gws = sorted(fix_df[fix_df['finished'] == False]['event'].unique().tolist())
+all_upcoming_gws = sorted(fix_df[fix_df['finished'] == False]['event'].dropna().unique().astype(int).tolist())
 selected_gws = st.multiselect("Filter by Gameweek", options=all_upcoming_gws, default=all_upcoming_gws[:3])
 
 upcoming = fix_df[fix_df['event'].isin(selected_gws)].copy()
-upcoming['GW'] = upcoming['event']
+upcoming['GW'] = upcoming['event'].astype(int)
 upcoming['Date'] = pd.to_datetime(upcoming['kickoff_time']).dt.strftime('%d/%m %H:%M')
 upcoming['Match'] = upcoming['team_h'].map(teams_map) + " vs " + upcoming['team_a'].map(teams_map)
 upcoming['Difficulty (H/A)'] = upcoming['team_h_difficulty'].astype(str) + " / " + upcoming['team_a_difficulty'].astype(str)
